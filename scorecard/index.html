@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
+<meta name="robots" content="noindex, nofollow">
 <title>Presentation Scorecard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -51,6 +51,7 @@ legend { font-size: 19px; padding: 0; margin-bottom: 10px; }
 label.field { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: 15px; }
 input[type="text"], select, textarea { width: 100%; border: 2px solid var(--rule); border-radius: 0; background: var(--paper); padding: 12px; font-size: 16px; }
 textarea { min-height: 130px; resize: vertical; line-height: 1.45; }
+input.code { font-family: var(--display); font-weight: 600; font-size: 26px; letter-spacing: 0.18em; text-transform: uppercase; text-align: center; padding: 14px 12px; }
 .hint { font-weight: 400; font-size: 14px; color: var(--muted); }
 
 .choice { position: relative; display: block; }
@@ -121,37 +122,9 @@ textarea { min-height: 130px; resize: vertical; line-height: 1.45; }
 /* ------------------------------------------------------------------ settings */
 var CONFIG = {
   // Web app address of the Google Apps Script that saves to the Google Sheet (ends in /exec).
-  endpoint: "https://script.google.com/macros/s/AKfycbyyJTri0TlUTSDLtG9-JK_CIHtKgxW-i9_4Xnp2sqlcH360JnEr15Ii6H-qdUmdyE92/exec",
-  courses: {
-    "5009": {
-      name: "COMM 5009", title: "Client pitch presentations", date: "Tuesday, December 8, 2026",
-      unit: "team", units: "teams",
-      roles: ["A student in COMM 5009", "A client or guest"],
-      presentations: [1, 2, 3, 4, 5, 6, 7].map(function (n) { return { id: "T" + n, name: "Team " + n, detail: "" }; }),
-      criteria: [
-        ["Client analysis", "The team showed a clear, evidence-based understanding of the client and the communication challenges it faces."],
-        ["Recommendations", "The team gave recommendations that are specific and realistic for the client, and explained how the client can use the packet materials."],
-        ["Organization", "The presentation followed a clear and logical sequence and stayed within its time."],
-        ["Delivery", "Every member took part, and the team presented with a professional style in body language, eye contact, expression, volume, and pace."],
-        ["Visuals", "The slides enhanced the presentation and were well designed, clear, legible, and concise."],
-        ["Engagement", "The team spoke in plain language that held the audience’s attention and answered questions with confidence."]
-      ]
-    },
-    "7007": {
-      name: "COMM 7007", title: "Final presentations", date: "Tuesday, December 1, 2026",
-      unit: "presenter", units: "presenters",
-      roles: [],
-      presentations: [1, 2, 3, 4, 5, 6, 7, 8].map(function (n) { return { id: "P" + n, name: "Presenter " + n, detail: "" }; }),
-      criteria: [
-        ["Contribution", "The presenter made clear what the theory explains and what it adds to existing work in the area."],
-        ["Theory", "The presenter identified the type of theory and explained its key concepts and relationships in accessible terms."],
-        ["Organization", "The presentation followed a clear and logical sequence and kept to a few key aspects of the theory within the 12 minutes."],
-        ["Delivery", "The presenter used an effective conference style in body language, eye contact, expression, volume, and pace."],
-        ["Visuals", "The slides and any model of the theory enhanced the presentation and were well designed, clear, legible, and concise."],
-        ["Questions and answers", "The presenter responded to questions thoughtfully and showed command of the theory and the literature behind it."]
-      ]
-    }
-  }
+  // Everything about a class (its name, semester, criteria, and the names of teams or presenters)
+  // comes from that script, and only after a valid access code. Nothing about a class is kept in this file.
+  endpoint: "https://script.google.com/macros/s/AKfycbyyJTri0TlUTSDLtG9-JK_CIHtKgxW-i9_4Xnp2sqlcH360JnEr15Ii6H-qdUmdyE92/exec"
 };
 var STEPS = ["1", "1.5", "2", "2.5", "3", "3.5", "4"];
 var ANCHORS = ["Poor", "", "Fair", "", "Good", "", "Excellent"];
@@ -179,9 +152,10 @@ if (!deviceId) { deviceId = randomId(10); store.set("device", deviceId); }
 
 /* ------------------------------------------------------------------ state */
 var state = {
-  view: "start",
-  course: null,
-  lockedCourse: false,
+  view: "code",
+  access: null,          // { code, klass } once a code has been accepted
+  codeTyped: "",
+  checking: false,
   profile: store.get("profile", { name: "", role: "", detail: "", ownId: "" }),
   entries: store.get("entries", {}),
   current: null,
@@ -196,8 +170,12 @@ var app = document.getElementById("app");
 function esc(text) {
   return String(text == null ? "" : text).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; });
 }
-function course() { return CONFIG.courses[state.course]; }
-function entryKey(pid) { return state.course + ":" + pid; }
+function tidyCode(text) { return String(text == null ? "" : text).replace(/[^A-Za-z0-9]/g, "").toUpperCase(); }
+function course() { return state.access.klass; }
+// Entries are kept apart by class and semester, so next semester starts clean on the same device.
+function ns() { var c = course(); return c.key + "-" + String(c.term).replace(/[^A-Za-z0-9]/g, ""); }
+function entryKey(pid) { return ns() + ":" + pid; }
+function heading(c) { return c.term ? c.name + " · " + c.term : c.name; }
 function fmt(n) { return String(Math.round(n * 10) / 10); }
 function totalOf(scores) { var t = 0; for (var i = 0; i < scores.length; i++) t += Number(scores[i] || 0); return t; }
 function label(p) { return p.detail ? p.name + " (" + p.detail + ")" : p.name; }
@@ -233,15 +211,18 @@ function confirmSaved(payload, tries) {
     .then(function (r) { return !!(r && r.ok && r.found); }, function () { return false; })
     .then(function (found) { return found ? true : sleep(1500).then(function () { return confirmSaved(payload, tries - 1); }); });
 }
+function refusal(reply) {
+  if (reply && reply.error === "code") return "This access code is no longer valid. Ask for the current code, then choose Use a different access code.";
+  return (reply && reply.error) || "The server did not accept this entry.";
+}
 // Resolves {ok:true} when the sheet has the entry, rejects {offline:true} when it could not be confirmed,
 // or rejects {message} when the server refused the entry.
 function apiSave(payload) {
-  if (!CONFIG.endpoint) return sleep(350).then(function () { return { ok: true, preview: true }; });
   var body = JSON.stringify(payload), headers = { "Content-Type": "text/plain;charset=utf-8" };
   return withTimeout(fetch(CONFIG.endpoint, { method: "POST", redirect: "follow", headers: headers, body: body }).then(function (r) { return r.json(); }), 25000)
     .then(function (reply) {
       if (reply && reply.ok) return reply;
-      return Promise.reject({ message: (reply && reply.error) || "The server did not accept this entry." });
+      return Promise.reject({ message: refusal(reply) });
     }, function () {
       if (navigator.onLine === false) return Promise.reject({ offline: true });
       // The reply could not be read. Check whether the entry arrived; if not, send once more without reading the reply.
@@ -253,50 +234,56 @@ function apiSave(payload) {
       });
     });
 }
-function loadSetup() {
-  var cached = store.get("setup", null);
-  if (cached) applySetup(cached);
-  if (!CONFIG.endpoint) return;
-  apiGet({ action: "config" }).then(function (reply) {
-    if (reply && reply.ok && reply.courses) { store.set("setup", reply.courses); applySetup(reply.courses); render(); }
-  }, function () { /* the built-in names are used */ });
+function readClass(raw) {
+  if (!raw || !raw.key || !raw.name || !Array.isArray(raw.criteria) || !Array.isArray(raw.presentations)) return null;
+  return {
+    key: String(raw.key), name: String(raw.name), term: String(raw.term || ""), title: String(raw.title || ""), date: String(raw.date || ""),
+    unit: String(raw.unit || "presentation"), units: String(raw.units || "presentations"),
+    roles: Array.isArray(raw.roles) ? raw.roles.map(String) : [],
+    criteria: raw.criteria.map(function (c) { return [String(c[0]), String(c[1] || "")]; }),
+    presentations: raw.presentations.map(function (p) { return { id: String(p.id), name: String(p.name || p.id), detail: String(p.detail || "") }; }),
+    open: raw.open !== false
+  };
 }
-function applySetup(courses) {
-  Object.keys(CONFIG.courses).forEach(function (key) {
-    var list = courses[CONFIG.courses[key].name];
-    if (list && list.length) CONFIG.courses[key].presentations = list.map(function (p) { return { id: String(p.id), name: String(p.name || p.id), detail: String(p.detail || "") }; });
+// Resolves the class for a code, resolves null when the code is not valid, rejects when the server cannot be reached.
+function fetchClass(code) {
+  return apiGet({ action: "open", code: code }).then(function (reply) {
+    if (reply && reply.ok) { var k = readClass(reply["class"]); if (k) return k; throw new Error("bad reply"); }
+    if (reply && reply.error === "code") return null;
+    throw new Error((reply && reply.error) || "bad reply");
   });
 }
 
 /* ------------------------------------------------------------------ views */
 function render() {
   var html = "";
-  if (!CONFIG.endpoint) html += '<div class="notice warn"><b>Preview.</b> This copy is not connected to the Google Sheet yet, so entries stay on this device.</div>';
-  if (state.view === "start") html += startView();
+  if (!CONFIG.endpoint) html += '<div class="notice warn"><b>Not set up.</b> This copy is not connected to a score sheet.</div>';
+  else if (state.view === "code") html += codeView();
+  else if (state.view === "start") html += startView();
   else if (state.view === "list") html += listView();
   else html += scoreView();
   app.innerHTML = html;
 }
 
+function codeView() {
+  var html = '<div class="stack"><h1 class="title">Presentation scorecard</h1>';
+  html += '<p class="lede">Enter the access code you were given.</p></div>';
+  html += '<form id="code" class="stack-lg" novalidate>';
+  html += '<label class="field" for="codebox">Access code<input class="code" type="text" id="codebox" name="code" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="16" value="' + esc(state.codeTyped) + '"></label>';
+  if (state.problem) html += '<p class="error" role="alert">' + esc(state.problem) + '</p>';
+  html += '<button class="btn" type="submit"' + (state.checking ? " disabled" : "") + '>' + (state.checking ? "Checking" : "Continue") + '</button></form>';
+  return html;
+}
+
 function startView() {
-  var p = state.profile, c = state.course ? course() : null, html = "";
+  var p = state.profile, c = course(), html = "";
   html += '<div class="stack"><h1 class="title">Presentation scorecard</h1>';
   html += '<p class="lede">Score each presentation and leave comments. Your entries go to Professor Fang.</p></div>';
   html += '<form id="start" class="stack-lg" novalidate>';
-  if (state.lockedCourse && c) {
-    html += '<div class="notice"><div><b>' + esc(c.name + ": " + c.title) + '</b><br>' + esc(c.date) + '</div>';
-    html += '<button type="button" class="linkbtn" data-act="unlock">Scoring a different class?</button></div>';
-  } else {
-    html += '<fieldset><legend>Which presentations are you scoring?</legend><div class="choices">';
-    Object.keys(CONFIG.courses).forEach(function (key) {
-      var k = CONFIG.courses[key];
-      html += '<label class="choice"><input type="radio" name="course" value="' + key + '"' + (state.course === key ? " checked" : "") + '>';
-      html += '<span class="card"><b>' + esc(k.name) + '</b><span>' + esc(k.title) + '</span><span>' + esc(k.date) + '</span></span></label>';
-    });
-    html += '</div></fieldset>';
-  }
+  html += '<div class="notice"><div><b>' + esc(heading(c)) + '</b><br>' + esc(c.title) + (c.date ? '<br>' + esc(c.date) : "") + '</div>';
+  html += '<button type="button" class="linkbtn" data-act="newcode">Use a different access code</button></div>';
   html += '<label class="field" for="name">Your name<input type="text" id="name" name="name" autocomplete="name" maxlength="80" value="' + esc(p.name) + '"></label>';
-  if (c && c.roles.length) {
+  if (c.roles.length) {
     html += '<fieldset><legend>You are</legend><div class="choices">';
     c.roles.forEach(function (r) {
       html += '<label class="choice"><input type="radio" name="role" value="' + esc(r) + '"' + (p.role === r ? " checked" : "") + '><span class="card"><b>' + esc(r) + '</b></span></label>';
@@ -307,7 +294,7 @@ function startView() {
     } else if (p.role === c.roles[1]) {
       html += '<label class="field" for="detail">Your organization<span class="hint">Optional</span><input type="text" id="detail" name="detail" autocomplete="organization" maxlength="120" value="' + esc(p.detail) + '"></label>';
     }
-  } else if (c) {
+  } else {
     html += '<label class="field" for="own">Your own presentation<span class="hint">You will not score yourself.</span>' + ownSelect(c, p.ownId, "I am not presenting") + '</label>';
   }
   if (state.problem) html += '<p class="error" role="alert">' + esc(state.problem) + '</p>';
@@ -328,8 +315,9 @@ function listView() {
     var e = state.entries[entryKey(x.id)];
     if (e) { done++; if (e.status === "pending") waiting++; }
   });
-  html += '<div class="stack"><p class="eyebrow">' + esc(c.name) + '</p><h1 class="title">' + esc(c.title) + '</h1><p class="lede">' + esc(c.date) + '</p></div>';
+  html += '<div class="stack"><p class="eyebrow">' + esc(heading(c)) + '</p><h1 class="title">' + esc(c.title) + '</h1>' + (c.date ? '<p class="lede">' + esc(c.date) + '</p>' : "") + '</div>';
   html += '<div class="who"><span>Scoring as <b>' + esc(p.name) + '</b></span><button type="button" class="btn plain" data-act="change">Change</button></div>';
+  if (!c.open) html += '<div class="notice warn" role="status"><b>Scoring is closed.</b> New and changed entries are not being accepted.</div>';
   if (state.message) html += '<div class="notice" role="status">' + esc(state.message) + '</div>';
   if (waiting) {
     html += '<div class="notice warn" role="alert"><div><b>' + waiting + (waiting === 1 ? " entry has" : " entries have") + ' not reached the server.</b> ' +
@@ -354,7 +342,7 @@ function listView() {
 function scoreView() {
   var c = course(), x = currentPresentation(), d = state.draft, html = "";
   html += '<button type="button" class="linkbtn" data-act="back">Back to all ' + esc(c.units) + '</button>';
-  html += '<div class="stack"><p class="eyebrow">' + esc(c.name) + '</p><h1 class="title">' + esc(x.name) + '</h1>' + (x.detail ? '<p class="lede">' + esc(x.detail) + '</p>' : "") + '</div>';
+  html += '<div class="stack"><p class="eyebrow">' + esc(heading(c)) + '</p><h1 class="title">' + esc(x.name) + '</h1>' + (x.detail ? '<p class="lede">' + esc(x.detail) + '</p>' : "") + '</div>';
   html += '<p class="scale-key"><b>1</b> Poor, <b>2</b> Fair, <b>3</b> Good, <b>4</b> Excellent. Half points are allowed.</p>';
   html += '<form id="score" class="stack-lg" novalidate>';
   c.criteria.forEach(function (crit, i) {
@@ -383,10 +371,46 @@ function currentPresentation() {
 /* ------------------------------------------------------------------ actions */
 function go(view) { state.view = view; state.problem = ""; render(); window.scrollTo(0, 0); }
 
+// A code was accepted: remember the class on this device and move to the right screen.
+function enter(code, klass) {
+  var before = store.get("ns", null);
+  state.access = { code: code, klass: klass }; store.set("access", state.access);
+  state.checking = false; state.codeTyped = ""; state.message = "";
+  if (before !== ns()) { state.profile.role = ""; state.profile.ownId = ""; state.profile.detail = ""; }
+  if (state.profile.name && before === ns()) { go("list"); resend(true); }
+  else go("start");
+}
+function tryCode(code) {
+  if (state.checking) return;
+  code = tidyCode(code);
+  state.codeTyped = code;
+  if (code.length < 4) { state.problem = "Enter your access code."; state.view = "code"; return render(); }
+  state.checking = true; state.problem = ""; state.view = "code"; render();
+  fetchClass(code).then(function (klass) {
+    if (klass) return enter(code, klass);
+    state.checking = false; state.problem = "That code was not recognized. Check it and try again."; render();
+  }, function () {
+    state.checking = false; state.problem = "The scorecard could not be reached. Check your connection and try again."; render();
+  });
+}
+// Picks up new names, dates, or a closed class. Drops the class from this device if its code was retired.
+function refreshClass() {
+  var code = state.access.code;
+  fetchClass(code).then(function (klass) {
+    if (!state.access || state.access.code !== code) return;
+    if (!klass) {
+      state.access = null; store.set("access", null);
+      state.problem = "This access code is no longer valid. Enter the current code."; state.view = "code"; return render();
+    }
+    var changed = JSON.stringify(klass) !== JSON.stringify(state.access.klass);
+    state.access.klass = klass; store.set("access", state.access);
+    if (changed && state.view !== "score") { if (state.view === "start") readStart(); render(); }
+  }, function () { /* offline: the copy kept on this device is used */ });
+}
+
 function readStart() {
   var form = document.getElementById("start"); if (!form) return;
   var data = new FormData(form), p = state.profile;
-  if (data.get("course")) state.course = String(data.get("course"));
   p.name = String(data.get("name") || "").trim();
   var role = data.get("role"); if (role !== null) p.role = String(role);
   if (form.elements.own) p.ownId = String(data.get("own") || "");
@@ -395,12 +419,11 @@ function readStart() {
 
 app.addEventListener("change", function (ev) {
   var t = ev.target;
-  if (state.view === "start" && (t.name === "course" || t.name === "role")) {
+  if (state.view === "start" && t.name === "role") {
     readStart();
-    if (t.name === "course") { state.profile.role = ""; state.profile.ownId = ""; state.profile.detail = ""; }
-    if (t.name === "role") { state.profile.ownId = ""; }
+    state.profile.ownId = "";
     state.problem = ""; render();
-    var again = app.querySelector('input[name="' + t.name + '"]:checked'); if (again) again.focus();
+    var again = app.querySelector('input[name="role"]:checked'); if (again) again.focus();
   }
   if (state.view === "score" && /^s\d$/.test(t.name)) {
     state.draft.scores[Number(t.name.slice(1))] = t.value;
@@ -410,40 +433,42 @@ app.addEventListener("change", function (ev) {
   }
 });
 app.addEventListener("input", function (ev) {
+  if (state.view === "code" && ev.target.id === "codebox") state.codeTyped = ev.target.value;
   if (state.view === "score" && ev.target.id === "comments") { state.draft.comments = ev.target.value; saveDraft(); }
 });
 function saveDraft() { store.set("draft:" + entryKey(state.current), state.draft); }
 
 app.addEventListener("submit", function (ev) {
   ev.preventDefault();
+  if (ev.target.id === "code") tryCode(new FormData(ev.target).get("code"));
   if (ev.target.id === "start") submitStart();
   if (ev.target.id === "score") submitScore();
 });
 
 function submitStart() {
   readStart();
-  var p = state.profile, c = state.course ? course() : null;
-  if (!c) { state.problem = "Choose which presentations you are scoring."; return render(); }
+  var p = state.profile, c = course();
   if (!p.name) { state.problem = "Enter your name."; return render(); }
   if (c.roles.length && !p.role) { state.problem = "Choose whether you are a student or a client or guest."; return render(); }
   if (c.roles.length && p.role === c.roles[0] && !p.ownId) { state.problem = "Choose your team."; return render(); }
   if (c.roles.length && p.role !== c.roles[0]) p.ownId = "";
-  store.set("profile", p); store.set("course", state.course);
+  store.set("profile", p); store.set("ns", ns());
   state.message = ""; go("list"); resend(true);
 }
 
 app.addEventListener("click", function (ev) {
   var el = ev.target.closest("[data-act]"); if (!el) return;
   var act = el.getAttribute("data-act");
-  if (act === "unlock") { readStart(); state.lockedCourse = false; render(); }
+  if (act === "newcode") { state.access = null; store.set("access", null); state.codeTyped = ""; go("code"); }
   if (act === "change") { state.message = ""; go("start"); }
   if (act === "back") { state.message = ""; go("list"); }
   if (act === "resend") resend(false);
   if (act === "open") {
     state.current = el.getAttribute("data-id");
-    var saved = state.entries[entryKey(state.current)];
+    var saved = state.entries[entryKey(state.current)], blank = [];
+    course().criteria.forEach(function () { blank.push(null); });
     state.draft = store.get("draft:" + entryKey(state.current), null) ||
-      (saved ? { scores: saved.scores.slice(), comments: saved.comments } : { scores: [null, null, null, null, null, null], comments: "" });
+      (saved ? { scores: saved.scores.slice(), comments: saved.comments } : { scores: blank, comments: "" });
     state.message = ""; go("score");
   }
 });
@@ -452,7 +477,7 @@ function payloadFor(pid, entry) {
   var c = course(), p = state.profile, own = "";
   if (p.ownId) c.presentations.forEach(function (x) { if (x.id === p.ownId) own = x.name; });
   return {
-    v: 1, entryId: deviceId + "-" + state.course + "-" + pid, saveId: entry.saveId, course: c.name,
+    v: 2, code: state.access.code, entryId: deviceId + "-" + ns() + "-" + pid, saveId: entry.saveId, course: c.name,
     scorer: p.name, role: c.roles.length ? p.role : (p.ownId ? "Presenter" : "Audience member"), scorerDetail: own || p.detail || "",
     presentationId: pid, scores: entry.scores.map(Number), comments: entry.comments
   };
@@ -488,7 +513,7 @@ function submitScore() {
 
 // Sends entries that have not reached the server, one at a time.
 function resend(quiet) {
-  if (state.resending) return;
+  if (state.resending || !state.access) return;
   var c = course(), queue = [];
   c.presentations.forEach(function (x) { var e = state.entries[entryKey(x.id)]; if (e && e.status === "pending") queue.push([x, e]); });
   if (!queue.length) return;
@@ -504,17 +529,24 @@ function resend(quiet) {
     if (state.view === "list") render();
   });
 }
-window.addEventListener("online", function () { if (state.course && state.view === "list") resend(true); });
+window.addEventListener("online", function () { if (state.access && state.view === "list") resend(true); });
+window.addEventListener("hashchange", function () { location.reload(); });
 
 /* ------------------------------------------------------------------ start */
 (function () {
-  var hash = (location.hash || "").replace("#", "");
-  var saved = store.get("course", null);
-  if (CONFIG.courses[hash]) { state.course = hash; state.lockedCourse = true; }
-  else if (saved && CONFIG.courses[saved]) state.course = saved;
-  loadSetup();
-  if (state.course && state.profile.name && saved === state.course) { state.view = "list"; render(); resend(true); }
-  else { if (saved !== state.course) { state.profile.role = ""; state.profile.ownId = ""; state.profile.detail = ""; } render(); }
+  if (!CONFIG.endpoint) return render();
+  var fromLink = tidyCode((location.hash || "").replace(/^#/, ""));
+  var kept = store.get("access", null);
+  if (kept && kept.code && readClass(kept.klass) && (!fromLink || fromLink === kept.code)) {
+    state.access = { code: kept.code, klass: readClass(kept.klass) };
+    if (state.profile.name && store.get("ns", null) === ns()) { state.view = "list"; render(); resend(true); }
+    else { state.view = "start"; render(); }
+    refreshClass();
+  } else if (fromLink) {
+    tryCode(fromLink);
+  } else {
+    render();
+  }
 })();
 </script>
 </body>
