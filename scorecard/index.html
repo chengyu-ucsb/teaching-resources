@@ -203,11 +203,19 @@ function withTimeout(promise, ms) {
     promise.then(function (v) { clearTimeout(timer); resolve(v); }, function (e) { clearTimeout(timer); reject(e); });
   });
 }
+// The server sends this character in place of "$" (see reply_ in the script). Turn it back.
+var STAND_IN = String.fromCharCode(0xE024);
+function restore(v) {
+  if (typeof v === "string") return v.split(STAND_IN).join("$");
+  if (Array.isArray(v)) return v.map(restore);
+  if (v && typeof v === "object") { var o = {}; Object.keys(v).forEach(function (k) { o[k] = restore(v[k]); }); return o; }
+  return v;
+}
 function apiGet(params) {
   var query = Object.keys(params).map(function (k) { return encodeURIComponent(k) + "=" + encodeURIComponent(params[k]); }).join("&");
   var url = CONFIG.endpoint + "?" + query;
   return withTimeout(fetch(url, { redirect: "follow" }).then(function (r) { if (!r.ok) throw new Error("http"); return r.json(); }), 12000)
-    .catch(function () { return jsonp(url); });
+    .catch(function () { return jsonp(url); }).then(restore);
 }
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 function confirmSaved(payload, tries) {
@@ -226,6 +234,7 @@ function apiSave(payload) {
   var body = JSON.stringify(payload), headers = { "Content-Type": "text/plain;charset=utf-8" };
   return withTimeout(fetch(CONFIG.endpoint, { method: "POST", redirect: "follow", headers: headers, body: body }).then(function (r) { return r.json(); }), 25000)
     .then(function (reply) {
+      reply = restore(reply);
       if (reply && reply.ok) return reply;
       return Promise.reject({ message: refusal(reply) });
     }, function () {
@@ -310,7 +319,15 @@ function startView() {
     if (p.role === c.roles[0]) {
       html += '<label class="field" for="own">Your team<span class="hint">You will not score your own team.</span>' + ownSelect(c, p.ownId, "Choose your team") + '</label>';
     } else if (p.role === c.roles[1]) {
-      html += '<label class="field" for="detail">Your organization<span class="hint">Optional</span><input type="text" id="detail" name="detail" autocomplete="organization" maxlength="120" value="' + esc(p.detail) + '"></label>';
+      var orgs = orgList(c), pick = orgPick(c, p);
+      if (orgs.length) {
+        html += '<label class="field" for="org">Your organization<span class="hint">Optional</span><select id="org" name="org"><option value="">Choose your organization</option>';
+        orgs.forEach(function (o) { html += '<option value="' + esc(o) + '"' + (pick === o ? " selected" : "") + '>' + esc(o) + '</option>'; });
+        html += '<option value="' + OTHER + '"' + (pick === OTHER ? " selected" : "") + '>Another organization</option></select></label>';
+      }
+      if (!orgs.length || pick === OTHER) {
+        html += '<label class="field" for="detail">' + (orgs.length ? "Organization name" : "Your organization") + '<span class="hint">Optional</span><input type="text" id="detail" name="detail" autocomplete="organization" maxlength="120" value="' + esc(p.detail) + '"></label>';
+      }
     }
   } else if (c) {
     html += '<label class="field" for="own">Your own presentation<span class="hint">You will not score yourself.</span>' + ownSelect(c, p.ownId, "I am not presenting") + '</label>';
@@ -319,6 +336,18 @@ function startView() {
   html += '<button class="btn" type="submit">Start scoring</button></form>';
   html += '<button type="button" class="linkbtn" data-act="newcode">Use a different access code</button>';
   return html;
+}
+// Client organizations come from the second line of each team on the score sheet.
+var OTHER = "__other";
+function orgList(c) {
+  var out = [];
+  c.presentations.forEach(function (x) { if (x.detail && out.indexOf(x.detail) < 0) out.push(x.detail); });
+  return out;
+}
+function orgPick(c, p) {
+  if (p.orgOther) return OTHER;
+  if (!p.detail) return "";
+  return orgList(c).indexOf(p.detail) >= 0 ? p.detail : OTHER;
 }
 function ownSelect(c, value, emptyLabel) {
   var html = '<select id="own" name="own"><option value="">' + esc(emptyLabel) + '</option>';
@@ -399,7 +428,7 @@ function enter(code, classes) {
   state.access = { code: code, classes: classes, key: key }; store.set("access", state.access);
   state.checking = false; state.codeTyped = ""; state.message = "";
   var c = course();
-  if (!c || before !== ns()) { state.profile.role = ""; state.profile.ownId = ""; state.profile.detail = ""; }
+  if (!c || before !== ns()) { state.profile.role = ""; state.profile.ownId = ""; state.profile.detail = ""; state.profile.orgOther = false; }
   if (c && state.profile.name && before === ns()) { go("list"); resend(true); }
   else go("start");
 }
@@ -442,6 +471,11 @@ function readStart() {
   p.name = String(data.get("name") || "").trim();
   var role = data.get("role"); if (role !== null) p.role = String(role);
   if (form.elements.own) p.ownId = String(data.get("own") || "");
+  if (form.elements.org) {
+    var org = String(data.get("org") || "");
+    p.orgOther = org === OTHER;
+    if (!p.orgOther) p.detail = org;
+  }
   if (form.elements.detail) p.detail = String(data.get("detail") || "").trim();
 }
 
@@ -449,10 +483,16 @@ app.addEventListener("change", function (ev) {
   var t = ev.target;
   if (state.view === "start" && (t.name === "klass" || t.name === "role")) {
     readStart();
-    if (t.name === "klass") { state.profile.role = ""; state.profile.detail = ""; store.set("access", state.access); }
-    state.profile.ownId = "";
+    if (t.name === "klass") { state.profile.role = ""; store.set("access", state.access); }
+    state.profile.ownId = ""; state.profile.detail = ""; state.profile.orgOther = false;
     state.problem = ""; render();
     var again = app.querySelector('input[name="' + t.name + '"]:checked'); if (again) again.focus();
+  }
+  if (state.view === "start" && t.name === "org") {
+    var wasOther = !!state.profile.orgOther;
+    readStart();
+    if (state.profile.orgOther && !wasOther) state.profile.detail = "";
+    if (state.profile.orgOther !== wasOther) { state.problem = ""; render(); var box = document.getElementById(state.profile.orgOther ? "detail" : "org"); if (box) box.focus(); }
   }
   if (state.view === "score" && /^s\d$/.test(t.name)) {
     state.draft.scores[Number(t.name.slice(1))] = t.value;
@@ -482,6 +522,7 @@ function submitStart() {
   if (c.roles.length && !p.role) { state.problem = "Choose whether you are a student or a client or guest."; return render(); }
   if (c.roles.length && p.role === c.roles[0] && !p.ownId) { state.problem = "Choose your team."; return render(); }
   if (c.roles.length && p.role !== c.roles[0]) p.ownId = "";
+  if (!c.roles.length || p.role === c.roles[0]) { p.detail = ""; p.orgOther = false; }
   store.set("profile", p); store.set("ns", ns()); store.set("access", state.access);
   state.message = ""; go("list"); resend(true);
 }
