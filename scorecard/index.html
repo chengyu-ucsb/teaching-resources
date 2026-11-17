@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Presentation Scorecard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jost:wght@500;600&family=Open+Sans:wght@400;600;700&display=swap">
+<style>
+/* University of Cincinnati palette: red, black, white, grey. Square corners, slanted edge on the header. */
+:root {
+  --red: #e00122;
+  --red-dark: #b8011c;
+  --ink: #000000;
+  --paper: #ffffff;
+  --panel: #f3f3f3;
+  --line: #d0cfd4;
+  --rule: #333333;
+  --muted: #4a4a4a;
+  --display: Jost, "Open Sans", Arial, Helvetica, sans-serif;
+  --body: "Open Sans", Arial, Helvetica, sans-serif;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.5; }
+button, input, select, textarea { font: inherit; color: inherit; }
+h1, h2, h3, legend { font-family: var(--display); font-weight: 600; margin: 0; text-wrap: balance; }
+p { margin: 0; }
+a { color: var(--red); }
+:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+.hidden { display: none !important; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.masthead { background: var(--red); height: 76px; display: flex; align-items: center; padding: 0 20px; clip-path: polygon(0 0, 100% 0, calc(100% - 17px) 100%, 0 100%); }
+.masthead img { display: block; width: 172px; height: auto; }
+.wrap { max-width: 680px; margin: 0 auto; padding: 24px 20px 40px; display: flex; flex-direction: column; gap: 24px; }
+
+.notice { background: var(--panel); border-left: 6px solid var(--ink); padding: 12px 14px; font-size: 15px; display: flex; flex-direction: column; gap: 8px; }
+.notice.warn { border-left-color: var(--red); }
+
+.eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--red); }
+.title { font-size: 32px; line-height: 1.1; }
+.lede { font-size: 16px; color: var(--muted); }
+.stack { display: flex; flex-direction: column; gap: 8px; }
+.stack-lg { display: flex; flex-direction: column; gap: 20px; }
+
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+legend { font-size: 19px; padding: 0; margin-bottom: 10px; }
+label.field { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: 15px; }
+input[type="text"], select, textarea { width: 100%; border: 2px solid var(--rule); border-radius: 0; background: var(--paper); padding: 12px; font-size: 16px; }
+textarea { min-height: 130px; resize: vertical; line-height: 1.45; }
+.hint { font-weight: 400; font-size: 14px; color: var(--muted); }
+
+.choice { position: relative; display: block; }
+.choice input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.choice .card { border: 2px solid var(--rule); padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; background: var(--paper); }
+.choice .card b { font-family: var(--display); font-weight: 600; font-size: 19px; line-height: 1.2; }
+.choice .card span { font-size: 15px; color: var(--muted); }
+.choice input:checked + .card { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.choice input:checked + .card span { color: var(--paper); }
+.choice input:focus-visible + .card { outline: 3px solid var(--ink); outline-offset: 2px; }
+.choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 10px; }
+
+.btn { border: 2px solid var(--red); background: var(--red); color: #ffffff; font-family: var(--display); font-weight: 600; font-size: 19px; padding: 14px 22px; min-height: 52px; cursor: pointer; border-radius: 0; }
+.btn:hover { background: var(--red-dark); border-color: var(--red-dark); }
+.btn[disabled] { opacity: 0.55; cursor: default; }
+.btn.plain { background: var(--paper); color: var(--ink); border-color: var(--rule); font-size: 16px; min-height: 44px; padding: 8px 14px; }
+.btn.plain:hover { background: var(--panel); }
+.linkbtn { background: none; border: 0; padding: 10px 0; min-height: 44px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; text-align: left; }
+.error { color: var(--red-dark); font-weight: 600; font-size: 15px; }
+
+.who { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-top: 4px solid var(--ink); padding-top: 12px; }
+.progress { display: flex; flex-direction: column; gap: 8px; }
+.ticks { display: flex; gap: 4px; }
+.ticks i { flex: 1; height: 8px; background: var(--line); }
+.ticks i.on { background: var(--red); }
+
+.rows { display: flex; flex-direction: column; gap: 10px; list-style: none; margin: 0; padding: 0; }
+.row { width: 100%; text-align: left; border: 2px solid var(--rule); background: var(--paper); padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 14px; cursor: pointer; border-radius: 0; min-height: 64px; }
+.row:hover { background: var(--panel); }
+.row .name { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.row .name b { font-family: var(--display); font-weight: 600; font-size: 20px; line-height: 1.2; }
+.row .name span { font-size: 15px; color: var(--muted); overflow-wrap: anywhere; }
+.row[disabled] { cursor: default; background: var(--panel); border-color: var(--line); color: var(--muted); }
+.chip { flex-shrink: 0; font-size: 13px; font-weight: 700; padding: 5px 9px; border: 2px solid var(--rule); white-space: nowrap; }
+.chip.done { background: var(--ink); border-color: var(--ink); color: #ffffff; }
+.chip.wait { background: var(--red); border-color: var(--red); color: #ffffff; }
+.chip.none { border-color: var(--line); color: var(--muted); }
+
+.scale-key { background: var(--panel); padding: 12px 14px; font-size: 15px; }
+.criterion { border-top: 2px solid var(--ink); padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.criterion h2 { font-size: 21px; line-height: 1.2; }
+.criterion p { font-size: 16px; }
+.criterion.missing h2 { color: var(--red-dark); }
+.pills { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+.pill { position: relative; }
+.pill input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.pill span { display: flex; align-items: center; justify-content: center; height: 48px; border: 2px solid var(--rule); background: var(--paper); font-weight: 700; font-size: 16px; font-variant-numeric: tabular-nums; }
+.pill input:checked + span { background: var(--red); border-color: var(--red); color: #ffffff; }
+.pill input:focus-visible + span { outline: 3px solid var(--ink); outline-offset: 2px; }
+.anchors { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; font-size: 12px; color: var(--muted); text-align: center; line-height: 1.2; }
+.anchors span:first-child { justify-self: start; width: max-content; }
+.anchors span:last-child { justify-self: end; width: max-content; }
+
+.savebar { position: sticky; bottom: 0; background: var(--paper); border-top: 4px solid var(--ink); margin: 0 -20px; padding: 12px 20px calc(12px + env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.total { display: flex; flex-direction: column; line-height: 1.15; }
+.total small { font-size: 13px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.total b { font-family: var(--display); font-weight: 600; font-size: 26px; font-variant-numeric: tabular-nums; }
+.savebar .btn { flex: 1; max-width: 300px; }
+.foot { font-size: 14px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px; }
+@media (prefers-reduced-motion: no-preference) { .btn, .row, .pill span { transition: background-color 0.12s ease; } }
+</style>
+</head>
+<body>
+<header class="masthead"><img src="uc-horizontal-white.svg" alt="University of Cincinnati"></header>
+<main class="wrap" id="app" aria-live="polite"></main>
+
+<script>
+/* ------------------------------------------------------------------ settings */
+var CONFIG = {
+  // Web app address of the Google Apps Script that saves to the Google Sheet (ends in /exec).
+  endpoint: "https://script.google.com/macros/s/AKfycbyyJTri0TlUTSDLtG9-JK_CIHtKgxW-i9_4Xnp2sqlcH360JnEr15Ii6H-qdUmdyE92/exec",
+  courses: {
+    "5009": {
+      name: "COMM 5009", title: "Client pitch presentations", date: "Tuesday, December 8, 2026",
+      unit: "team", units: "teams",
+      roles: ["A student in COMM 5009", "A client or guest"],
+      presentations: [1, 2, 3, 4, 5, 6, 7].map(function (n) { return { id: "T" + n, name: "Team " + n, detail: "" }; }),
+      criteria: [
+        ["Client analysis", "The team showed a clear, evidence-based understanding of the client and the communication challenges it faces."],
+        ["Recommendations", "The team gave recommendations that are specific and realistic for the client, and explained how the client can use the packet materials."],
+        ["Organization", "The presentation followed a clear and logical sequence and stayed within its time."],
+        ["Delivery", "Every member took part, and the team presented with a professional style in body language, eye contact, expression, volume, and pace."],
+        ["Visuals", "The slides enhanced the presentation and were well designed, clear, legible, and concise."],
+        ["Engagement", "The team spoke in plain language that held the audience’s attention and answered questions with confidence."]
+      ]
+    },
+    "7007": {
+      name: "COMM 7007", title: "Final presentations", date: "Tuesday, December 1, 2026",
+      unit: "presenter", units: "presenters",
+      roles: [],
+      presentations: [1, 2, 3, 4, 5, 6, 7, 8].map(function (n) { return { id: "P" + n, name: "Presenter " + n, detail: "" }; }),
+      criteria: [
+        ["Contribution", "The presenter made clear what the theory explains and what it adds to existing work in the area."],
+        ["Theory", "The presenter identified the type of theory and explained its key concepts and relationships in accessible terms."],
+        ["Organization", "The presentation followed a clear and logical sequence and kept to a few key aspects of the theory within the 12 minutes."],
+        ["Delivery", "The presenter used an effective conference style in body language, eye contact, expression, volume, and pace."],
+        ["Visuals", "The slides and any model of the theory enhanced the presentation and were well designed, clear, legible, and concise."],
+        ["Questions and answers", "The presenter responded to questions thoughtfully and showed command of the theory and the literature behind it."]
+      ]
+    }
+  }
+};
+var STEPS = ["1", "1.5", "2", "2.5", "3", "3.5", "4"];
+var ANCHORS = ["Poor", "", "Fair", "", "Good", "", "Excellent"];
+
+/* ------------------------------------------------------------------ storage (this device only) */
+var memory = {};
+var store = {
+  get: function (key, fallback) {
+    try { var raw = localStorage.getItem("scorecard:" + key); return raw === null ? (key in memory ? memory[key] : fallback) : JSON.parse(raw); }
+    catch (e) { return key in memory ? memory[key] : fallback; }
+  },
+  set: function (key, value) {
+    memory[key] = value;
+    try { localStorage.setItem("scorecard:" + key, JSON.stringify(value)); } catch (e) { /* kept in memory for this visit */ }
+  }
+};
+function randomId(n) {
+  var bytes = new Uint8Array(n), out = "";
+  (window.crypto || window.msCrypto).getRandomValues(bytes);
+  for (var i = 0; i < n; i++) out += ("0" + bytes[i].toString(16)).slice(-2);
+  return out;
+}
+var deviceId = store.get("device", "");
+if (!deviceId) { deviceId = randomId(10); store.set("device", deviceId); }
+
+/* ------------------------------------------------------------------ state */
+var state = {
+  view: "start",
+  course: null,
+  lockedCourse: false,
+  profile: store.get("profile", { name: "", role: "", detail: "", ownId: "" }),
+  entries: store.get("entries", {}),
+  current: null,
+  draft: null,
+  message: "",
+  problem: "",
+  sending: false,
+  resending: false
+};
+var app = document.getElementById("app");
+
+function esc(text) {
+  return String(text == null ? "" : text).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; });
+}
+function course() { return CONFIG.courses[state.course]; }
+function entryKey(pid) { return state.course + ":" + pid; }
+function fmt(n) { return String(Math.round(n * 10) / 10); }
+function totalOf(scores) { var t = 0; for (var i = 0; i < scores.length; i++) t += Number(scores[i] || 0); return t; }
+function label(p) { return p.detail ? p.name + " (" + p.detail + ")" : p.name; }
+
+/* ------------------------------------------------------------------ server */
+function jsonp(url) {
+  return new Promise(function (resolve, reject) {
+    var name = "__sc" + randomId(6), tag = document.createElement("script");
+    var timer = setTimeout(function () { done(); reject(new Error("timeout")); }, 12000);
+    function done() { clearTimeout(timer); delete window[name]; tag.remove(); }
+    window[name] = function (data) { done(); resolve(data); };
+    tag.onerror = function () { done(); reject(new Error("network")); };
+    tag.src = url + (url.indexOf("?") < 0 ? "?" : "&") + "callback=" + name;
+    document.head.appendChild(tag);
+  });
+}
+function withTimeout(promise, ms) {
+  return new Promise(function (resolve, reject) {
+    var timer = setTimeout(function () { reject(new Error("timeout")); }, ms);
+    promise.then(function (v) { clearTimeout(timer); resolve(v); }, function (e) { clearTimeout(timer); reject(e); });
+  });
+}
+function apiGet(params) {
+  var query = Object.keys(params).map(function (k) { return encodeURIComponent(k) + "=" + encodeURIComponent(params[k]); }).join("&");
+  var url = CONFIG.endpoint + "?" + query;
+  return withTimeout(fetch(url, { redirect: "follow" }).then(function (r) { if (!r.ok) throw new Error("http"); return r.json(); }), 12000)
+    .catch(function () { return jsonp(url); });
+}
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function confirmSaved(payload, tries) {
+  if (tries <= 0) return Promise.resolve(false);
+  return apiGet({ action: "check", course: payload.course, entryId: payload.entryId, saveId: payload.saveId })
+    .then(function (r) { return !!(r && r.ok && r.found); }, function () { return false; })
+    .then(function (found) { return found ? true : sleep(1500).then(function () { return confirmSaved(payload, tries - 1); }); });
+}
+// Resolves {ok:true} when the sheet has the entry, rejects {offline:true} when it could not be confirmed,
+// or rejects {message} when the server refused the entry.
+function apiSave(payload) {
+  if (!CONFIG.endpoint) return sleep(350).then(function () { return { ok: true, preview: true }; });
+  var body = JSON.stringify(payload), headers = { "Content-Type": "text/plain;charset=utf-8" };
+  return withTimeout(fetch(CONFIG.endpoint, { method: "POST", redirect: "follow", headers: headers, body: body }).then(function (r) { return r.json(); }), 25000)
+    .then(function (reply) {
+      if (reply && reply.ok) return reply;
+      return Promise.reject({ message: (reply && reply.error) || "The server did not accept this entry." });
+    }, function () {
+      if (navigator.onLine === false) return Promise.reject({ offline: true });
+      // The reply could not be read. Check whether the entry arrived; if not, send once more without reading the reply.
+      return confirmSaved(payload, 1).then(function (found) {
+        if (found) return { ok: true };
+        return fetch(CONFIG.endpoint, { method: "POST", mode: "no-cors", headers: headers, body: body }).catch(function () {})
+          .then(function () { return confirmSaved(payload, 3); })
+          .then(function (ok) { return ok ? { ok: true } : Promise.reject({ offline: true }); });
+      });
+    });
+}
+function loadSetup() {
+  var cached = store.get("setup", null);
+  if (cached) applySetup(cached);
+  if (!CONFIG.endpoint) return;
+  apiGet({ action: "config" }).then(function (reply) {
+    if (reply && reply.ok && reply.courses) { store.set("setup", reply.courses); applySetup(reply.courses); render(); }
+  }, function () { /* the built-in names are used */ });
+}
+function applySetup(courses) {
+  Object.keys(CONFIG.courses).forEach(function (key) {
+    var list = courses[CONFIG.courses[key].name];
+    if (list && list.length) CONFIG.courses[key].presentations = list.map(function (p) { return { id: String(p.id), name: String(p.name || p.id), detail: String(p.detail || "") }; });
+  });
+}
+
+/* ------------------------------------------------------------------ views */
+function render() {
+  var html = "";
+  if (!CONFIG.endpoint) html += '<div class="notice warn"><b>Preview.</b> This copy is not connected to the Google Sheet yet, so entries stay on this device.</div>';
+  if (state.view === "start") html += startView();
+  else if (state.view === "list") html += listView();
+  else html += scoreView();
+  app.innerHTML = html;
+}
+
+function startView() {
+  var p = state.profile, c = state.course ? course() : null, html = "";
+  html += '<div class="stack"><h1 class="title">Presentation scorecard</h1>';
+  html += '<p class="lede">Score each presentation and leave comments. Your entries go to Professor Fang.</p></div>';
+  html += '<form id="start" class="stack-lg" novalidate>';
+  if (state.lockedCourse && c) {
+    html += '<div class="notice"><div><b>' + esc(c.name + ": " + c.title) + '</b><br>' + esc(c.date) + '</div>';
+    html += '<button type="button" class="linkbtn" data-act="unlock">Scoring a different class?</button></div>';
+  } else {
+    html += '<fieldset><legend>Which presentations are you scoring?</legend><div class="choices">';
+    Object.keys(CONFIG.courses).forEach(function (key) {
+      var k = CONFIG.courses[key];
+      html += '<label class="choice"><input type="radio" name="course" value="' + key + '"' + (state.course === key ? " checked" : "") + '>';
+      html += '<span class="card"><b>' + esc(k.name) + '</b><span>' + esc(k.title) + '</span><span>' + esc(k.date) + '</span></span></label>';
+    });
+    html += '</div></fieldset>';
+  }
+  html += '<label class="field" for="name">Your name<input type="text" id="name" name="name" autocomplete="name" maxlength="80" value="' + esc(p.name) + '"></label>';
+  if (c && c.roles.length) {
+    html += '<fieldset><legend>You are</legend><div class="choices">';
+    c.roles.forEach(function (r) {
+      html += '<label class="choice"><input type="radio" name="role" value="' + esc(r) + '"' + (p.role === r ? " checked" : "") + '><span class="card"><b>' + esc(r) + '</b></span></label>';
+    });
+    html += '</div></fieldset>';
+    if (p.role === c.roles[0]) {
+      html += '<label class="field" for="own">Your team<span class="hint">You will not score your own team.</span>' + ownSelect(c, p.ownId, "Choose your team") + '</label>';
+    } else if (p.role === c.roles[1]) {
+      html += '<label class="field" for="detail">Your organization<span class="hint">Optional</span><input type="text" id="detail" name="detail" autocomplete="organization" maxlength="120" value="' + esc(p.detail) + '"></label>';
+    }
+  } else if (c) {
+    html += '<label class="field" for="own">Your own presentation<span class="hint">You will not score yourself.</span>' + ownSelect(c, p.ownId, "I am not presenting") + '</label>';
+  }
+  if (state.problem) html += '<p class="error" role="alert">' + esc(state.problem) + '</p>';
+  html += '<button class="btn" type="submit">Start scoring</button></form>';
+  return html;
+}
+function ownSelect(c, value, emptyLabel) {
+  var html = '<select id="own" name="own"><option value="">' + esc(emptyLabel) + '</option>';
+  c.presentations.forEach(function (x) { html += '<option value="' + esc(x.id) + '"' + (value === x.id ? " selected" : "") + '>' + esc(label(x)) + '</option>'; });
+  return html + '</select>';
+}
+
+function listView() {
+  var c = course(), p = state.profile, html = "", done = 0, open = 0, waiting = 0;
+  c.presentations.forEach(function (x) {
+    if (x.id === p.ownId) return;
+    open++;
+    var e = state.entries[entryKey(x.id)];
+    if (e) { done++; if (e.status === "pending") waiting++; }
+  });
+  html += '<div class="stack"><p class="eyebrow">' + esc(c.name) + '</p><h1 class="title">' + esc(c.title) + '</h1><p class="lede">' + esc(c.date) + '</p></div>';
+  html += '<div class="who"><span>Scoring as <b>' + esc(p.name) + '</b></span><button type="button" class="btn plain" data-act="change">Change</button></div>';
+  if (state.message) html += '<div class="notice" role="status">' + esc(state.message) + '</div>';
+  if (waiting) {
+    html += '<div class="notice warn" role="alert"><div><b>' + waiting + (waiting === 1 ? " entry has" : " entries have") + ' not reached the server.</b> ' +
+      'They are kept on this device. Check your connection, then send them again.</div><button type="button" class="btn plain" data-act="resend"' + (state.resending ? " disabled" : "") + '>' + (state.resending ? "Sending" : "Send now") + '</button></div>';
+  }
+  html += '<div class="progress"><span><b>' + done + ' of ' + open + '</b> ' + esc(c.units) + ' scored</span><div class="ticks" aria-hidden="true">';
+  for (var i = 0; i < open; i++) html += '<i class="' + (i < done ? "on" : "") + '"></i>';
+  html += '</div></div><ul class="rows">';
+  c.presentations.forEach(function (x) {
+    var e = state.entries[entryKey(x.id)], own = x.id === p.ownId, chip;
+    if (own) chip = '<span class="chip none">' + (c.roles.length ? "Your team" : "You") + '</span>';
+    else if (!e) chip = '<span class="chip none">Not scored</span>';
+    else if (e.status === "pending") chip = '<span class="chip wait">Not sent</span>';
+    else chip = '<span class="chip done">' + fmt(e.total) + ' of ' + maxTotal() + '</span>';
+    html += '<li><button type="button" class="row" data-act="open" data-id="' + esc(x.id) + '"' + (own ? " disabled" : "") + '><span class="name"><b>' + esc(x.name) + '</b>' +
+      (x.detail ? '<span>' + esc(x.detail) + '</span>' : "") + '</span>' + chip + '</button></li>';
+  });
+  html += '</ul><p class="foot">You can open a saved entry and change it. Only your latest version is kept.</p>';
+  return html;
+}
+
+function scoreView() {
+  var c = course(), x = currentPresentation(), d = state.draft, html = "";
+  html += '<button type="button" class="linkbtn" data-act="back">Back to all ' + esc(c.units) + '</button>';
+  html += '<div class="stack"><p class="eyebrow">' + esc(c.name) + '</p><h1 class="title">' + esc(x.name) + '</h1>' + (x.detail ? '<p class="lede">' + esc(x.detail) + '</p>' : "") + '</div>';
+  html += '<p class="scale-key"><b>1</b> Poor, <b>2</b> Fair, <b>3</b> Good, <b>4</b> Excellent. Half points are allowed.</p>';
+  html += '<form id="score" class="stack-lg" novalidate>';
+  c.criteria.forEach(function (crit, i) {
+    var missing = state.problem && !d.scores[i];
+    html += '<div class="criterion' + (missing ? " missing" : "") + '" id="crit-' + i + '" role="radiogroup" aria-labelledby="crit-name-' + i + '"><h2 id="crit-name-' + i + '">' + esc(crit[0]) + '</h2><p>' + esc(crit[1]) + '</p><div class="pills">';
+    STEPS.forEach(function (s) {
+      html += '<label class="pill"><input type="radio" name="s' + i + '" value="' + s + '"' + (d.scores[i] === s ? " checked" : "") + '><span>' + s + '</span></label>';
+    });
+    html += '</div><div class="anchors" aria-hidden="true">' + ANCHORS.map(function (a) { return "<span>" + a + "</span>"; }).join("") + '</div></div>';
+  });
+  html += '<label class="field" for="comments">Comments for this ' + esc(c.unit) + '<span class="hint">What worked well, and what would you suggest?</span>' +
+    '<textarea id="comments" name="comments" maxlength="3000">' + esc(d.comments) + '</textarea></label>';
+  if (state.problem) html += '<p class="error" role="alert">' + esc(state.problem) + '</p>';
+  html += '<div class="savebar"><div class="total"><small>Total</small><b id="total">' + totalText(d) + '</b></div>' +
+    '<button class="btn" type="submit"' + (state.sending ? " disabled" : "") + '>' + (state.sending ? "Saving" : "Save scores") + '</button></div></form>';
+  return html;
+}
+function maxTotal() { return course().criteria.length * 4; }
+function totalText(d) { return fmt(totalOf(d.scores)) + " of " + maxTotal(); }
+function currentPresentation() {
+  var list = course().presentations;
+  for (var i = 0; i < list.length; i++) if (list[i].id === state.current) return list[i];
+  return list[0];
+}
+
+/* ------------------------------------------------------------------ actions */
+function go(view) { state.view = view; state.problem = ""; render(); window.scrollTo(0, 0); }
+
+function readStart() {
+  var form = document.getElementById("start"); if (!form) return;
+  var data = new FormData(form), p = state.profile;
+  if (data.get("course")) state.course = String(data.get("course"));
+  p.name = String(data.get("name") || "").trim();
+  var role = data.get("role"); if (role !== null) p.role = String(role);
+  if (form.elements.own) p.ownId = String(data.get("own") || "");
+  if (form.elements.detail) p.detail = String(data.get("detail") || "").trim();
+}
+
+app.addEventListener("change", function (ev) {
+  var t = ev.target;
+  if (state.view === "start" && (t.name === "course" || t.name === "role")) {
+    readStart();
+    if (t.name === "course") { state.profile.role = ""; state.profile.ownId = ""; state.profile.detail = ""; }
+    if (t.name === "role") { state.profile.ownId = ""; }
+    state.problem = ""; render();
+    var again = app.querySelector('input[name="' + t.name + '"]:checked'); if (again) again.focus();
+  }
+  if (state.view === "score" && /^s\d$/.test(t.name)) {
+    state.draft.scores[Number(t.name.slice(1))] = t.value;
+    saveDraft();
+    document.getElementById("total").textContent = totalText(state.draft);
+    var box = document.getElementById("crit-" + t.name.slice(1)); if (box) box.classList.remove("missing");
+  }
+});
+app.addEventListener("input", function (ev) {
+  if (state.view === "score" && ev.target.id === "comments") { state.draft.comments = ev.target.value; saveDraft(); }
+});
+function saveDraft() { store.set("draft:" + entryKey(state.current), state.draft); }
+
+app.addEventListener("submit", function (ev) {
+  ev.preventDefault();
+  if (ev.target.id === "start") submitStart();
+  if (ev.target.id === "score") submitScore();
+});
+
+function submitStart() {
+  readStart();
+  var p = state.profile, c = state.course ? course() : null;
+  if (!c) { state.problem = "Choose which presentations you are scoring."; return render(); }
+  if (!p.name) { state.problem = "Enter your name."; return render(); }
+  if (c.roles.length && !p.role) { state.problem = "Choose whether you are a student or a client or guest."; return render(); }
+  if (c.roles.length && p.role === c.roles[0] && !p.ownId) { state.problem = "Choose your team."; return render(); }
+  if (c.roles.length && p.role !== c.roles[0]) p.ownId = "";
+  store.set("profile", p); store.set("course", state.course);
+  state.message = ""; go("list"); resend(true);
+}
+
+app.addEventListener("click", function (ev) {
+  var el = ev.target.closest("[data-act]"); if (!el) return;
+  var act = el.getAttribute("data-act");
+  if (act === "unlock") { readStart(); state.lockedCourse = false; render(); }
+  if (act === "change") { state.message = ""; go("start"); }
+  if (act === "back") { state.message = ""; go("list"); }
+  if (act === "resend") resend(false);
+  if (act === "open") {
+    state.current = el.getAttribute("data-id");
+    var saved = state.entries[entryKey(state.current)];
+    state.draft = store.get("draft:" + entryKey(state.current), null) ||
+      (saved ? { scores: saved.scores.slice(), comments: saved.comments } : { scores: [null, null, null, null, null, null], comments: "" });
+    state.message = ""; go("score");
+  }
+});
+
+function payloadFor(pid, entry) {
+  var c = course(), p = state.profile, own = "";
+  if (p.ownId) c.presentations.forEach(function (x) { if (x.id === p.ownId) own = x.name; });
+  return {
+    v: 1, entryId: deviceId + "-" + state.course + "-" + pid, saveId: entry.saveId, course: c.name,
+    scorer: p.name, role: c.roles.length ? p.role : (p.ownId ? "Presenter" : "Audience member"), scorerDetail: own || p.detail || "",
+    presentationId: pid, scores: entry.scores.map(Number), comments: entry.comments
+  };
+}
+
+function submitScore() {
+  if (state.sending) return;
+  var d = state.draft, c = course(), missing = -1;
+  for (var i = 0; i < c.criteria.length; i++) if (!d.scores[i]) { missing = i; break; }
+  if (missing >= 0) {
+    state.problem = "Choose a score for " + c.criteria[missing][0] + ".";
+    render();
+    var box = document.getElementById("crit-" + missing); if (box) box.scrollIntoView({ block: "center" });
+    return;
+  }
+  var pid = state.current, x = currentPresentation();
+  var before = state.entries[entryKey(pid)];
+  var entry = { scores: d.scores.slice(), comments: d.comments.trim(), total: totalOf(d.scores), status: "pending", saveId: randomId(8) };
+  state.entries[entryKey(pid)] = entry; store.set("entries", state.entries);
+  state.sending = true; state.problem = ""; render();
+  apiSave(payloadFor(pid, entry)).then(function () {
+    entry.status = "saved"; state.message = "Saved your scores for " + x.name + ".";
+  }, function (err) {
+    if (err && err.offline) state.message = "";
+    else { if (before) state.entries[entryKey(pid)] = before; else delete state.entries[entryKey(pid)]; state.problem = (err && err.message) || "The entry could not be saved."; }
+  }).then(function () {
+    store.set("entries", state.entries); state.sending = false;
+    if (state.problem) return render();
+    store.set("draft:" + entryKey(pid), null);
+    go("list");
+  });
+}
+
+// Sends entries that have not reached the server, one at a time.
+function resend(quiet) {
+  if (state.resending) return;
+  var c = course(), queue = [];
+  c.presentations.forEach(function (x) { var e = state.entries[entryKey(x.id)]; if (e && e.status === "pending") queue.push([x, e]); });
+  if (!queue.length) return;
+  state.resending = true; if (!quiet) render();
+  var sent = 0;
+  queue.reduce(function (chain, item) {
+    return chain.then(function () {
+      return apiSave(payloadFor(item[0].id, item[1])).then(function () { item[1].status = "saved"; sent++; }, function () {});
+    });
+  }, Promise.resolve()).then(function () {
+    store.set("entries", state.entries); state.resending = false;
+    if (sent) state.message = sent === queue.length ? "All entries are saved." : sent + " of " + queue.length + " entries were sent.";
+    if (state.view === "list") render();
+  });
+}
+window.addEventListener("online", function () { if (state.course && state.view === "list") resend(true); });
+
+/* ------------------------------------------------------------------ start */
+(function () {
+  var hash = (location.hash || "").replace("#", "");
+  var saved = store.get("course", null);
+  if (CONFIG.courses[hash]) { state.course = hash; state.lockedCourse = true; }
+  else if (saved && CONFIG.courses[saved]) state.course = saved;
+  loadSetup();
+  if (state.course && state.profile.name && saved === state.course) { state.view = "list"; render(); resend(true); }
+  else { if (saved !== state.course) { state.profile.role = ""; state.profile.ownId = ""; state.profile.detail = ""; } render(); }
+})();
+</script>
+</body>
+</html>
