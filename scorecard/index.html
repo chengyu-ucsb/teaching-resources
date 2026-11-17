@@ -153,7 +153,7 @@ if (!deviceId) { deviceId = randomId(10); store.set("device", deviceId); }
 /* ------------------------------------------------------------------ state */
 var state = {
   view: "code",
-  access: null,          // { code, klass } once a code has been accepted
+  access: null,          // { code, classes, key } once a code has been accepted; key is the class being scored
   codeTyped: "",
   checking: false,
   profile: store.get("profile", { name: "", role: "", detail: "", ownId: "" }),
@@ -171,9 +171,14 @@ function esc(text) {
   return String(text == null ? "" : text).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; });
 }
 function tidyCode(text) { return String(text == null ? "" : text).replace(/[^A-Za-z0-9]/g, "").toUpperCase(); }
-function course() { return state.access.klass; }
+function course() {
+  var a = state.access; if (!a) return null;
+  for (var i = 0; i < a.classes.length; i++) if (a.classes[i].key === a.key) return a.classes[i];
+  return null;
+}
 // Entries are kept apart by class and semester, so next semester starts clean on the same device.
-function ns() { var c = course(); return c.key + "-" + String(c.term).replace(/[^A-Za-z0-9]/g, ""); }
+function nsOf(c) { return c.key + "-" + String(c.term).replace(/[^A-Za-z0-9]/g, ""); }
+function ns() { return nsOf(course()); }
 function entryKey(pid) { return ns() + ":" + pid; }
 function heading(c) { return c.term ? c.name + " · " + c.term : c.name; }
 function fmt(n) { return String(Math.round(n * 10) / 10); }
@@ -245,11 +250,16 @@ function readClass(raw) {
     open: raw.open !== false
   };
 }
-// Resolves the class for a code, resolves null when the code is not valid, rejects when the server cannot be reached.
-function fetchClass(code) {
+function readClasses(list) {
+  var out = [];
+  if (Array.isArray(list)) list.forEach(function (raw) { var k = readClass(raw); if (k) out.push(k); });
+  return out;
+}
+// Resolves the classes a code opens, resolves [] when the code is not valid, rejects when the server cannot be reached.
+function fetchClasses(code) {
   return apiGet({ action: "open", code: code }).then(function (reply) {
-    if (reply && reply.ok) { var k = readClass(reply["class"]); if (k) return k; throw new Error("bad reply"); }
-    if (reply && reply.error === "code") return null;
+    if (reply && reply.ok) { var list = readClasses(reply.classes); if (list.length) return list; throw new Error("bad reply"); }
+    if (reply && reply.error === "code") return [];
     throw new Error((reply && reply.error) || "bad reply");
   });
 }
@@ -276,14 +286,22 @@ function codeView() {
 }
 
 function startView() {
-  var p = state.profile, c = course(), html = "";
+  var p = state.profile, a = state.access, c = course(), html = "";
   html += '<div class="stack"><h1 class="title">Presentation scorecard</h1>';
   html += '<p class="lede">Score each presentation and leave comments. Your entries go to Professor Fang.</p></div>';
   html += '<form id="start" class="stack-lg" novalidate>';
-  html += '<div class="notice"><div><b>' + esc(heading(c)) + '</b><br>' + esc(c.title) + (c.date ? '<br>' + esc(c.date) : "") + '</div>';
-  html += '<button type="button" class="linkbtn" data-act="newcode">Use a different access code</button></div>';
+  if (a.classes.length > 1) {
+    html += '<fieldset><legend>Which presentations are you scoring?</legend><div class="choices">';
+    a.classes.forEach(function (k) {
+      html += '<label class="choice"><input type="radio" name="klass" value="' + esc(k.key) + '"' + (a.key === k.key ? " checked" : "") + '>';
+      html += '<span class="card"><b>' + esc(heading(k)) + '</b><span>' + esc(k.title) + '</span>' + (k.date ? '<span>' + esc(k.date) + '</span>' : "") + '</span></label>';
+    });
+    html += '</div></fieldset>';
+  } else {
+    html += '<div class="notice"><div><b>' + esc(heading(c)) + '</b><br>' + esc(c.title) + (c.date ? '<br>' + esc(c.date) : "") + '</div></div>';
+  }
   html += '<label class="field" for="name">Your name<input type="text" id="name" name="name" autocomplete="name" maxlength="80" value="' + esc(p.name) + '"></label>';
-  if (c.roles.length) {
+  if (c && c.roles.length) {
     html += '<fieldset><legend>You are</legend><div class="choices">';
     c.roles.forEach(function (r) {
       html += '<label class="choice"><input type="radio" name="role" value="' + esc(r) + '"' + (p.role === r ? " checked" : "") + '><span class="card"><b>' + esc(r) + '</b></span></label>';
@@ -294,11 +312,12 @@ function startView() {
     } else if (p.role === c.roles[1]) {
       html += '<label class="field" for="detail">Your organization<span class="hint">Optional</span><input type="text" id="detail" name="detail" autocomplete="organization" maxlength="120" value="' + esc(p.detail) + '"></label>';
     }
-  } else {
+  } else if (c) {
     html += '<label class="field" for="own">Your own presentation<span class="hint">You will not score yourself.</span>' + ownSelect(c, p.ownId, "I am not presenting") + '</label>';
   }
   if (state.problem) html += '<p class="error" role="alert">' + esc(state.problem) + '</p>';
   html += '<button class="btn" type="submit">Start scoring</button></form>';
+  html += '<button type="button" class="linkbtn" data-act="newcode">Use a different access code</button>';
   return html;
 }
 function ownSelect(c, value, emptyLabel) {
@@ -371,13 +390,17 @@ function currentPresentation() {
 /* ------------------------------------------------------------------ actions */
 function go(view) { state.view = view; state.problem = ""; render(); window.scrollTo(0, 0); }
 
-// A code was accepted: remember the class on this device and move to the right screen.
-function enter(code, klass) {
-  var before = store.get("ns", null);
-  state.access = { code: code, klass: klass }; store.set("access", state.access);
+// A code was accepted: remember its classes on this device and move to the right screen.
+function enter(code, classes) {
+  var before = store.get("ns", null), key = null;
+  // One class: no choice to make. Several: go back to the class this device was scoring, if any.
+  if (classes.length === 1) key = classes[0].key;
+  else classes.forEach(function (k) { if (nsOf(k) === before) key = k.key; });
+  state.access = { code: code, classes: classes, key: key }; store.set("access", state.access);
   state.checking = false; state.codeTyped = ""; state.message = "";
-  if (before !== ns()) { state.profile.role = ""; state.profile.ownId = ""; state.profile.detail = ""; }
-  if (state.profile.name && before === ns()) { go("list"); resend(true); }
+  var c = course();
+  if (!c || before !== ns()) { state.profile.role = ""; state.profile.ownId = ""; state.profile.detail = ""; }
+  if (c && state.profile.name && before === ns()) { go("list"); resend(true); }
   else go("start");
 }
 function tryCode(code) {
@@ -386,31 +409,36 @@ function tryCode(code) {
   state.codeTyped = code;
   if (code.length < 4) { state.problem = "Enter your access code."; state.view = "code"; return render(); }
   state.checking = true; state.problem = ""; state.view = "code"; render();
-  fetchClass(code).then(function (klass) {
-    if (klass) return enter(code, klass);
+  fetchClasses(code).then(function (list) {
+    if (list.length) return enter(code, list);
     state.checking = false; state.problem = "That code was not recognized. Check it and try again."; render();
   }, function () {
     state.checking = false; state.problem = "The scorecard could not be reached. Check your connection and try again."; render();
   });
 }
-// Picks up new names, dates, or a closed class. Drops the class from this device if its code was retired.
-function refreshClass() {
+// Picks up new names, dates, or a closed class. Drops the classes from this device if the code was retired.
+function refreshClasses() {
   var code = state.access.code;
-  fetchClass(code).then(function (klass) {
+  fetchClasses(code).then(function (list) {
     if (!state.access || state.access.code !== code) return;
-    if (!klass) {
+    if (!list.length) {
       state.access = null; store.set("access", null);
       state.problem = "This access code is no longer valid. Enter the current code."; state.view = "code"; return render();
     }
-    var changed = JSON.stringify(klass) !== JSON.stringify(state.access.klass);
-    state.access.klass = klass; store.set("access", state.access);
-    if (changed && state.view !== "score") { if (state.view === "start") readStart(); render(); }
+    var changed = JSON.stringify(list) !== JSON.stringify(state.access.classes);
+    if (state.view === "start") readStart();
+    state.access.classes = list;
+    if (!course()) state.access.key = list.length === 1 ? list[0].key : null;
+    store.set("access", state.access);
+    if (!course() && state.view !== "start") { state.view = "start"; state.problem = ""; return render(); }
+    if (changed && state.view !== "score") render();
   }, function () { /* offline: the copy kept on this device is used */ });
 }
 
 function readStart() {
   var form = document.getElementById("start"); if (!form) return;
   var data = new FormData(form), p = state.profile;
+  var pick = data.get("klass"); if (pick !== null) state.access.key = String(pick);
   p.name = String(data.get("name") || "").trim();
   var role = data.get("role"); if (role !== null) p.role = String(role);
   if (form.elements.own) p.ownId = String(data.get("own") || "");
@@ -419,11 +447,12 @@ function readStart() {
 
 app.addEventListener("change", function (ev) {
   var t = ev.target;
-  if (state.view === "start" && t.name === "role") {
+  if (state.view === "start" && (t.name === "klass" || t.name === "role")) {
     readStart();
+    if (t.name === "klass") { state.profile.role = ""; state.profile.detail = ""; store.set("access", state.access); }
     state.profile.ownId = "";
     state.problem = ""; render();
-    var again = app.querySelector('input[name="role"]:checked'); if (again) again.focus();
+    var again = app.querySelector('input[name="' + t.name + '"]:checked'); if (again) again.focus();
   }
   if (state.view === "score" && /^s\d$/.test(t.name)) {
     state.draft.scores[Number(t.name.slice(1))] = t.value;
@@ -448,11 +477,12 @@ app.addEventListener("submit", function (ev) {
 function submitStart() {
   readStart();
   var p = state.profile, c = course();
+  if (!c) { state.problem = "Choose which presentations you are scoring."; return render(); }
   if (!p.name) { state.problem = "Enter your name."; return render(); }
   if (c.roles.length && !p.role) { state.problem = "Choose whether you are a student or a client or guest."; return render(); }
   if (c.roles.length && p.role === c.roles[0] && !p.ownId) { state.problem = "Choose your team."; return render(); }
   if (c.roles.length && p.role !== c.roles[0]) p.ownId = "";
-  store.set("profile", p); store.set("ns", ns());
+  store.set("profile", p); store.set("ns", ns()); store.set("access", state.access);
   state.message = ""; go("list"); resend(true);
 }
 
@@ -513,7 +543,7 @@ function submitScore() {
 
 // Sends entries that have not reached the server, one at a time.
 function resend(quiet) {
-  if (state.resending || !state.access) return;
+  if (state.resending || !course()) return;
   var c = course(), queue = [];
   c.presentations.forEach(function (x) { var e = state.entries[entryKey(x.id)]; if (e && e.status === "pending") queue.push([x, e]); });
   if (!queue.length) return;
@@ -529,19 +559,20 @@ function resend(quiet) {
     if (state.view === "list") render();
   });
 }
-window.addEventListener("online", function () { if (state.access && state.view === "list") resend(true); });
+window.addEventListener("online", function () { if (course() && state.view === "list") resend(true); });
 window.addEventListener("hashchange", function () { location.reload(); });
 
 /* ------------------------------------------------------------------ start */
 (function () {
   if (!CONFIG.endpoint) return render();
   var fromLink = tidyCode((location.hash || "").replace(/^#/, ""));
-  var kept = store.get("access", null);
-  if (kept && kept.code && readClass(kept.klass) && (!fromLink || fromLink === kept.code)) {
-    state.access = { code: kept.code, klass: readClass(kept.klass) };
-    if (state.profile.name && store.get("ns", null) === ns()) { state.view = "list"; render(); resend(true); }
+  var kept = store.get("access", null), keptClasses = kept ? readClasses(kept.classes) : [];
+  if (kept && kept.code && keptClasses.length && (!fromLink || fromLink === kept.code)) {
+    state.access = { code: kept.code, classes: keptClasses, key: kept.key || null };
+    if (!course()) state.access.key = keptClasses.length === 1 ? keptClasses[0].key : null;
+    if (course() && state.profile.name && store.get("ns", null) === ns()) { state.view = "list"; render(); resend(true); }
     else { state.view = "start"; render(); }
-    refreshClass();
+    refreshClasses();
   } else if (fromLink) {
     tryCode(fromLink);
   } else {
