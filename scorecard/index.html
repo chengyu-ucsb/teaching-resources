@@ -171,6 +171,14 @@ function esc(text) {
   return String(text == null ? "" : text).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; });
 }
 function tidyCode(text) { return String(text == null ? "" : text).replace(/[^A-Za-z0-9]/g, "").toUpperCase(); }
+// The server marks a class of team presentations by sending a list of roles. Teams are scored by outside experts;
+// a class without the list is one where each presenter scores the others.
+function isTeams(c) { return c.roles.length > 0; }
+// The link is the access code alone ("#CODE"), or the code and a class key ("#CODE/KEY") to skip the class question.
+function readLink() {
+  var parts = (location.hash || "").replace(/^#/, "").split("/");
+  return { code: tidyCode(parts[0]), key: String(parts[1] || "").replace(/[^A-Za-z0-9]/g, "") };
+}
 function course() {
   var a = state.access; if (!a) return null;
   for (var i = 0; i < a.classes.length; i++) if (a.classes[i].key === a.key) return a.classes[i];
@@ -183,7 +191,6 @@ function entryKey(pid) { return ns() + ":" + pid; }
 function heading(c) { return c.term ? c.name + " · " + c.term : c.name; }
 function fmt(n) { return String(Math.round(n * 10) / 10); }
 function totalOf(scores) { var t = 0; for (var i = 0; i < scores.length; i++) t += Number(scores[i] || 0); return t; }
-function label(p) { return p.detail ? p.name + " (" + p.detail + ")" : p.name; }
 
 /* ------------------------------------------------------------------ server */
 function jsonp(url) {
@@ -299,35 +306,28 @@ function startView() {
   html += '<div class="stack"><h1 class="title">Presentation scorecard</h1>';
   html += '<p class="lede">Score each presentation and leave comments. Your entries go to Professor Fang.</p></div>';
   html += '<form id="start" class="stack-lg" novalidate>';
-  if (a.classes.length > 1) {
+  if (a.classes.length > 1 && !a.pin) {
     html += '<fieldset><legend>Which presentations are you scoring?</legend><div class="choices">';
     a.classes.forEach(function (k) {
       html += '<label class="choice"><input type="radio" name="klass" value="' + esc(k.key) + '"' + (a.key === k.key ? " checked" : "") + '>';
-      html += '<span class="card"><b>' + esc(heading(k)) + '</b><span>' + esc(k.title) + '</span>' + (k.date ? '<span>' + esc(k.date) + '</span>' : "") + '</span></label>';
+      html += '<span class="card"><b>' + esc(k.title || k.name) + '</b><span>' + esc(heading(k)) + '</span>' + (k.date ? '<span>' + esc(k.date) + '</span>' : "") + '</span></label>';
     });
     html += '</div></fieldset>';
   } else {
-    html += '<div class="notice"><div><b>' + esc(heading(c)) + '</b><br>' + esc(c.title) + (c.date ? '<br>' + esc(c.date) : "") + '</div></div>';
+    html += '<div class="notice"><div><b>' + esc(c.title || c.name) + '</b><br>' + esc(heading(c)) + (c.date ? '<br>' + esc(c.date) : "") + '</div></div>';
   }
-  if (c && c.roles.length) {
+  if (c && isTeams(c)) {
+    // Team presentations are scored by outside experts (clients, guests, invited judges), not by the students.
+    // They give a name and say which organization they are with; nobody is locked out of a team.
     html += '<label class="field" for="name">Your name<input type="text" id="name" name="name" autocomplete="name" maxlength="80" value="' + esc(p.name) + '"></label>';
-    html += '<fieldset><legend>You are</legend><div class="choices">';
-    c.roles.forEach(function (r) {
-      html += '<label class="choice"><input type="radio" name="role" value="' + esc(r) + '"' + (p.role === r ? " checked" : "") + '><span class="card"><b>' + esc(r) + '</b></span></label>';
-    });
-    html += '</div></fieldset>';
-    if (p.role === c.roles[0]) {
-      html += '<label class="field" for="own">Your team<span class="hint">You will score every team except your own.</span>' + ownSelect(c, p.ownId, "Choose your team") + '</label>';
-    } else if (p.role === c.roles[1]) {
-      var orgs = orgList(c), pick = orgPick(c, p);
-      if (orgs.length) {
-        html += '<label class="field" for="org">Your organization<span class="hint">Optional</span><select id="org" name="org"><option value="">Choose your organization</option>';
-        orgs.forEach(function (o) { html += '<option value="' + esc(o) + '"' + (pick === o ? " selected" : "") + '>' + esc(o) + '</option>'; });
-        html += '<option value="' + OTHER + '"' + (pick === OTHER ? " selected" : "") + '>Another organization</option></select></label>';
-      }
-      if (!orgs.length || pick === OTHER) {
-        html += '<label class="field" for="detail">' + (orgs.length ? "Organization name" : "Your organization") + '<span class="hint">Optional</span><input type="text" id="detail" name="detail" autocomplete="organization" maxlength="120" value="' + esc(p.detail) + '"></label>';
-      }
+    var orgs = orgList(c), pick = orgPick(c, p);
+    if (orgs.length) {
+      html += '<label class="field" for="org">Your organization<select id="org" name="org"><option value="">Choose your organization</option>';
+      orgs.forEach(function (o) { html += '<option value="' + esc(o) + '"' + (pick === o ? " selected" : "") + '>' + esc(o) + '</option>'; });
+      html += '<option value="' + OTHER + '"' + (pick === OTHER ? " selected" : "") + '>My organization is not listed</option></select></label>';
+    }
+    if (!orgs.length || pick === OTHER) {
+      html += '<label class="field" for="detail">' + (orgs.length ? "Organization name" : "Your organization") + '<span class="hint">Optional</span><input type="text" id="detail" name="detail" autocomplete="organization" maxlength="120" value="' + esc(p.detail) + '"></label>';
     }
   } else if (c) {
     // The presenters are the scorers here, so one list answers both "who are you" and "which presentation is yours".
@@ -363,23 +363,19 @@ function whoPick(c, p) {
 // Moving to a class of individual presenters with a name already typed: pick that presenter if the name matches.
 function matchName() {
   var c = course(), p = state.profile;
-  if (!c || c.roles.length) return;
+  if (!c || isTeams(c)) return;
   var typed = String(p.name || "").trim().toLowerCase(), hit = null;
   p.nameOther = false; p.ownId = "";
   if (!typed) return;
   c.presentations.forEach(function (x) { if (x.name.trim().toLowerCase() === typed) hit = x; });
   if (hit) { p.ownId = hit.id; p.name = hit.name; } else p.nameOther = true;
 }
-function ownSelect(c, value, emptyLabel) {
-  var html = '<select id="own" name="own"><option value="">' + esc(emptyLabel) + '</option>';
-  c.presentations.forEach(function (x) { html += '<option value="' + esc(x.id) + '"' + (value === x.id ? " selected" : "") + '>' + esc(label(x)) + '</option>'; });
-  return html + '</select>';
-}
 
 function listView() {
   var c = course(), p = state.profile, html = "", done = 0, open = 0, waiting = 0;
+  var mine = isTeams(c) ? "" : p.ownId;
   c.presentations.forEach(function (x) {
-    if (x.id === p.ownId) return;
+    if (x.id === mine) return;
     open++;
     var e = state.entries[entryKey(x.id)];
     if (e) { done++; if (e.status === "pending") waiting++; }
@@ -396,8 +392,8 @@ function listView() {
   for (var i = 0; i < open; i++) html += '<i class="' + (i < done ? "on" : "") + '"></i>';
   html += '</div></div><ul class="rows">';
   c.presentations.forEach(function (x) {
-    var e = state.entries[entryKey(x.id)], own = x.id === p.ownId, chip;
-    if (own) chip = '<span class="chip none">' + (c.roles.length ? "Your team" : "You") + '</span>';
+    var e = state.entries[entryKey(x.id)], own = x.id === mine, chip;
+    if (own) chip = '<span class="chip none">You</span>';
     else if (!e) chip = '<span class="chip none">Not scored</span>';
     else if (e.status === "pending") chip = '<span class="chip wait">Not sent</span>';
     else chip = '<span class="chip done">' + fmt(e.total) + ' of ' + maxTotal() + '</span>';
@@ -440,17 +436,32 @@ function currentPresentation() {
 /* ------------------------------------------------------------------ actions */
 function go(view) { state.view = view; state.problem = ""; render(); window.scrollTo(0, 0); }
 
+// Follows the link: a class named in it is chosen and its class question is skipped; a link with the code alone
+// brings the class question back. A page opened with no code in its address is left as it was.
+function applyLink() {
+  var link = readLink(), a = state.access, hit = false;
+  if (!a || link.code !== a.code) return false;
+  a.classes.forEach(function (k) { if (k.key === link.key) hit = true; });
+  if (hit) { a.key = link.key; a.pin = link.key; } else a.pin = "";
+  return true;
+}
+// Clears answers that belonged to another class. Returns true when this device already finished the start form for this class.
+function settle() {
+  var c = course(), before = store.get("ns", null), p = state.profile;
+  if (!c || before !== ns()) { p.role = ""; p.ownId = ""; p.detail = ""; p.orgOther = false; p.nameOther = false; matchName(); }
+  return !!(c && p.name && before === ns());
+}
 // A code was accepted: remember its classes on this device and move to the right screen.
 function enter(code, classes) {
   var before = store.get("ns", null), key = null;
   // One class: no choice to make. Several: go back to the class this device was scoring, if any.
   if (classes.length === 1) key = classes[0].key;
   else classes.forEach(function (k) { if (nsOf(k) === before) key = k.key; });
-  state.access = { code: code, classes: classes, key: key }; store.set("access", state.access);
+  state.access = { code: code, classes: classes, key: key, pin: "" };
+  applyLink();
+  store.set("access", state.access);
   state.checking = false; state.codeTyped = ""; state.message = "";
-  var c = course();
-  if (!c || before !== ns()) { state.profile.role = ""; state.profile.ownId = ""; state.profile.detail = ""; state.profile.orgOther = false; state.profile.nameOther = false; matchName(); }
-  if (c && state.profile.name && before === ns()) { go("list"); resend(true); }
+  if (settle()) { go("list"); resend(true); }
   else go("start");
 }
 function tryCode(code) {
@@ -478,10 +489,10 @@ function refreshClasses() {
     var changed = JSON.stringify(list) !== JSON.stringify(state.access.classes);
     if (state.view === "start") readStart();
     state.access.classes = list;
-    if (!course()) state.access.key = list.length === 1 ? list[0].key : null;
+    if (!course()) { state.access.key = list.length === 1 ? list[0].key : null; state.access.pin = ""; }
     store.set("access", state.access);
     var now = course(), prof = state.profile;
-    if (now && !now.roles.length && prof.ownId) now.presentations.forEach(function (x) { if (x.id === prof.ownId && x.name !== prof.name) { prof.name = x.name; changed = true; if (store.get("ns", null) === ns()) store.set("profile", prof); } });
+    if (now && !isTeams(now) && prof.ownId) now.presentations.forEach(function (x) { if (x.id === prof.ownId && x.name !== prof.name) { prof.name = x.name; changed = true; if (store.get("ns", null) === ns()) store.set("profile", prof); } });
     if (!course() && state.view !== "start") { state.view = "start"; state.problem = ""; return render(); }
     if (changed && state.view !== "score") render();
   }, function () { /* offline: the copy kept on this device is used */ });
@@ -491,8 +502,6 @@ function readStart() {
   var form = document.getElementById("start"); if (!form) return;
   var data = new FormData(form), p = state.profile, c = course();
   if (form.elements.name) p.name = String(data.get("name") || "").trim();
-  var role = data.get("role"); if (role !== null) p.role = String(role);
-  if (form.elements.own) p.ownId = String(data.get("own") || "");
   if (form.elements.who && c) {
     var who = String(data.get("who") || "");
     p.nameOther = who === OTHER;
@@ -512,12 +521,13 @@ function readStart() {
 
 app.addEventListener("change", function (ev) {
   var t = ev.target;
-  if (state.view === "start" && (t.name === "klass" || t.name === "role")) {
+  if (state.view === "start" && t.name === "klass") {
     readStart();
-    state.profile.ownId = ""; state.profile.detail = ""; state.profile.orgOther = false;
-    if (t.name === "klass") { state.profile.role = ""; state.profile.nameOther = false; store.set("access", state.access); matchName(); }
+    var pf = state.profile;
+    pf.role = ""; pf.ownId = ""; pf.detail = ""; pf.orgOther = false; pf.nameOther = false;
+    store.set("access", state.access); matchName();
     state.problem = ""; render();
-    var again = app.querySelector('input[name="' + t.name + '"]:checked'); if (again) again.focus();
+    var again = app.querySelector('input[name="klass"]:checked'); if (again) again.focus();
   }
   if (state.view === "start" && t.name === "org") {
     var wasOther = !!state.profile.orgOther;
@@ -555,14 +565,15 @@ function submitStart() {
   readStart();
   var p = state.profile, c = course();
   if (!c) { state.problem = "Choose which presentations you are scoring."; return render(); }
-  if (!c.roles.length) {
+  if (isTeams(c)) {
+    p.nameOther = false; p.ownId = ""; p.role = "";
+    if (!p.name) { state.problem = "Enter your name."; return render(); }
+    if (orgList(c).length && orgPick(c, p) === "") { state.problem = "Choose your organization."; return render(); }
+  } else {
     if (whoPick(c, p) === "") { p.ownId = ""; state.problem = "Choose your name."; return render(); }
-  } else p.nameOther = false;
-  if (!p.name) { state.problem = "Enter your name."; return render(); }
-  if (c.roles.length && !p.role) { state.problem = "Choose whether you are a student or a client or guest."; return render(); }
-  if (c.roles.length && p.role === c.roles[0] && !p.ownId) { state.problem = "Choose your team."; return render(); }
-  if (c.roles.length && p.role !== c.roles[0]) p.ownId = "";
-  if (!c.roles.length || p.role === c.roles[0]) { p.detail = ""; p.orgOther = false; }
+    if (!p.name) { state.problem = "Enter your name."; return render(); }
+    p.detail = ""; p.orgOther = false;
+  }
   store.set("profile", p); store.set("ns", ns()); store.set("access", state.access);
   state.message = ""; go("list"); resend(true);
 }
@@ -585,11 +596,18 @@ app.addEventListener("click", function (ev) {
 });
 
 function payloadFor(pid, entry) {
-  var c = course(), p = state.profile, own = "";
-  if (p.ownId) c.presentations.forEach(function (x) { if (x.id === p.ownId) own = x.name; });
+  var c = course(), p = state.profile, own = "", role, detail;
+  if (isTeams(c)) {
+    // An expert from one of the listed client organizations is recorded as a client, anyone else as a guest.
+    detail = p.detail || "";
+    role = !p.orgOther && orgList(c).indexOf(detail) >= 0 ? "Client" : "Guest";
+  } else {
+    if (p.ownId) c.presentations.forEach(function (x) { if (x.id === p.ownId) own = x.name; });
+    detail = own; role = own ? "Presenter" : "Audience member";
+  }
   return {
     v: 2, code: state.access.code, entryId: deviceId + "-" + ns() + "-" + pid, saveId: entry.saveId, course: c.name,
-    scorer: p.name, role: c.roles.length ? p.role : (p.ownId ? "Presenter" : "Audience member"), scorerDetail: own || p.detail || "",
+    scorer: p.name, role: role, scorerDetail: detail,
     presentationId: pid, scores: entry.scores.map(Number), comments: entry.comments
   };
 }
@@ -646,12 +664,13 @@ window.addEventListener("hashchange", function () { location.reload(); });
 /* ------------------------------------------------------------------ start */
 (function () {
   if (!CONFIG.endpoint) return render();
-  var fromLink = tidyCode((location.hash || "").replace(/^#/, ""));
+  var fromLink = readLink().code;
   var kept = store.get("access", null), keptClasses = kept ? readClasses(kept.classes) : [];
   if (kept && kept.code && keptClasses.length && (!fromLink || fromLink === kept.code)) {
-    state.access = { code: kept.code, classes: keptClasses, key: kept.key || null };
-    if (!course()) state.access.key = keptClasses.length === 1 ? keptClasses[0].key : null;
-    if (course() && state.profile.name && store.get("ns", null) === ns()) { state.view = "list"; render(); resend(true); }
+    state.access = { code: kept.code, classes: keptClasses, key: kept.key || null, pin: kept.pin || "" };
+    if (!course()) { state.access.key = keptClasses.length === 1 ? keptClasses[0].key : null; state.access.pin = ""; }
+    if (applyLink()) store.set("access", state.access);
+    if (settle()) { state.view = "list"; render(); resend(true); }
     else { state.view = "start"; render(); }
     refreshClasses();
   } else if (fromLink) {
