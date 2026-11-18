@@ -309,15 +309,15 @@ function startView() {
   } else {
     html += '<div class="notice"><div><b>' + esc(heading(c)) + '</b><br>' + esc(c.title) + (c.date ? '<br>' + esc(c.date) : "") + '</div></div>';
   }
-  html += '<label class="field" for="name">Your name<input type="text" id="name" name="name" autocomplete="name" maxlength="80" value="' + esc(p.name) + '"></label>';
   if (c && c.roles.length) {
+    html += '<label class="field" for="name">Your name<input type="text" id="name" name="name" autocomplete="name" maxlength="80" value="' + esc(p.name) + '"></label>';
     html += '<fieldset><legend>You are</legend><div class="choices">';
     c.roles.forEach(function (r) {
       html += '<label class="choice"><input type="radio" name="role" value="' + esc(r) + '"' + (p.role === r ? " checked" : "") + '><span class="card"><b>' + esc(r) + '</b></span></label>';
     });
     html += '</div></fieldset>';
     if (p.role === c.roles[0]) {
-      html += '<label class="field" for="own">Your team<span class="hint">You will not score your own team.</span>' + ownSelect(c, p.ownId, "Choose your team") + '</label>';
+      html += '<label class="field" for="own">Your team<span class="hint">You will score every team except your own.</span>' + ownSelect(c, p.ownId, "Choose your team") + '</label>';
     } else if (p.role === c.roles[1]) {
       var orgs = orgList(c), pick = orgPick(c, p);
       if (orgs.length) {
@@ -330,7 +330,12 @@ function startView() {
       }
     }
   } else if (c) {
-    html += '<label class="field" for="own">Your own presentation<span class="hint">You will not score yourself.</span>' + ownSelect(c, p.ownId, "I am not presenting") + '</label>';
+    // The presenters are the scorers here, so one list answers both "who are you" and "which presentation is yours".
+    var who = whoPick(c, p);
+    html += '<label class="field" for="who">Your name<span class="hint">You will score every presentation except your own.</span><select id="who" name="who"><option value="">Choose your name</option>';
+    c.presentations.forEach(function (x) { html += '<option value="' + esc(x.id) + '"' + (who === x.id ? " selected" : "") + '>' + esc(x.name) + '</option>'; });
+    html += '<option value="' + OTHER + '"' + (who === OTHER ? " selected" : "") + '>My name is not listed</option></select></label>';
+    if (who === OTHER) html += '<label class="field" for="name">Type your name<input type="text" id="name" name="name" autocomplete="name" maxlength="80" value="' + esc(p.name) + '"></label>';
   }
   if (state.problem) html += '<p class="error" role="alert">' + esc(state.problem) + '</p>';
   html += '<button class="btn" type="submit">Start scoring</button></form>';
@@ -348,6 +353,22 @@ function orgPick(c, p) {
   if (p.orgOther) return OTHER;
   if (!p.detail) return "";
   return orgList(c).indexOf(p.detail) >= 0 ? p.detail : OTHER;
+}
+function whoPick(c, p) {
+  if (p.nameOther) return OTHER;
+  var found = "";
+  c.presentations.forEach(function (x) { if (x.id === p.ownId) found = x.id; });
+  return found;
+}
+// Moving to a class of individual presenters with a name already typed: pick that presenter if the name matches.
+function matchName() {
+  var c = course(), p = state.profile;
+  if (!c || c.roles.length) return;
+  var typed = String(p.name || "").trim().toLowerCase(), hit = null;
+  p.nameOther = false; p.ownId = "";
+  if (!typed) return;
+  c.presentations.forEach(function (x) { if (x.name.trim().toLowerCase() === typed) hit = x; });
+  if (hit) { p.ownId = hit.id; p.name = hit.name; } else p.nameOther = true;
 }
 function ownSelect(c, value, emptyLabel) {
   var html = '<select id="own" name="own"><option value="">' + esc(emptyLabel) + '</option>';
@@ -428,7 +449,7 @@ function enter(code, classes) {
   state.access = { code: code, classes: classes, key: key }; store.set("access", state.access);
   state.checking = false; state.codeTyped = ""; state.message = "";
   var c = course();
-  if (!c || before !== ns()) { state.profile.role = ""; state.profile.ownId = ""; state.profile.detail = ""; state.profile.orgOther = false; }
+  if (!c || before !== ns()) { state.profile.role = ""; state.profile.ownId = ""; state.profile.detail = ""; state.profile.orgOther = false; state.profile.nameOther = false; matchName(); }
   if (c && state.profile.name && before === ns()) { go("list"); resend(true); }
   else go("start");
 }
@@ -459,6 +480,8 @@ function refreshClasses() {
     state.access.classes = list;
     if (!course()) state.access.key = list.length === 1 ? list[0].key : null;
     store.set("access", state.access);
+    var now = course(), prof = state.profile;
+    if (now && !now.roles.length && prof.ownId) now.presentations.forEach(function (x) { if (x.id === prof.ownId && x.name !== prof.name) { prof.name = x.name; changed = true; if (store.get("ns", null) === ns()) store.set("profile", prof); } });
     if (!course() && state.view !== "start") { state.view = "start"; state.problem = ""; return render(); }
     if (changed && state.view !== "score") render();
   }, function () { /* offline: the copy kept on this device is used */ });
@@ -466,25 +489,33 @@ function refreshClasses() {
 
 function readStart() {
   var form = document.getElementById("start"); if (!form) return;
-  var data = new FormData(form), p = state.profile;
-  var pick = data.get("klass"); if (pick !== null) state.access.key = String(pick);
-  p.name = String(data.get("name") || "").trim();
+  var data = new FormData(form), p = state.profile, c = course();
+  if (form.elements.name) p.name = String(data.get("name") || "").trim();
   var role = data.get("role"); if (role !== null) p.role = String(role);
   if (form.elements.own) p.ownId = String(data.get("own") || "");
+  if (form.elements.who && c) {
+    var who = String(data.get("who") || "");
+    p.nameOther = who === OTHER;
+    p.ownId = who && who !== OTHER ? who : "";
+    if (p.ownId) c.presentations.forEach(function (x) { if (x.id === p.ownId) p.name = x.name; });
+    else if (!p.nameOther) p.name = "";
+  }
   if (form.elements.org) {
     var org = String(data.get("org") || "");
     p.orgOther = org === OTHER;
     if (!p.orgOther) p.detail = org;
   }
   if (form.elements.detail) p.detail = String(data.get("detail") || "").trim();
+  // Last, because the fields above belong to the class that was showing.
+  var pick = data.get("klass"); if (pick !== null) state.access.key = String(pick);
 }
 
 app.addEventListener("change", function (ev) {
   var t = ev.target;
   if (state.view === "start" && (t.name === "klass" || t.name === "role")) {
     readStart();
-    if (t.name === "klass") { state.profile.role = ""; store.set("access", state.access); }
     state.profile.ownId = ""; state.profile.detail = ""; state.profile.orgOther = false;
+    if (t.name === "klass") { state.profile.role = ""; state.profile.nameOther = false; store.set("access", state.access); matchName(); }
     state.problem = ""; render();
     var again = app.querySelector('input[name="' + t.name + '"]:checked'); if (again) again.focus();
   }
@@ -493,6 +524,12 @@ app.addEventListener("change", function (ev) {
     readStart();
     if (state.profile.orgOther && !wasOther) state.profile.detail = "";
     if (state.profile.orgOther !== wasOther) { state.problem = ""; render(); var box = document.getElementById(state.profile.orgOther ? "detail" : "org"); if (box) box.focus(); }
+  }
+  if (state.view === "start" && t.name === "who") {
+    var wasOtherName = !!state.profile.nameOther;
+    readStart();
+    if (state.profile.nameOther && !wasOtherName) state.profile.name = "";
+    if (state.profile.nameOther !== wasOtherName) { state.problem = ""; render(); var nb = document.getElementById(state.profile.nameOther ? "name" : "who"); if (nb) nb.focus(); }
   }
   if (state.view === "score" && /^s\d$/.test(t.name)) {
     state.draft.scores[Number(t.name.slice(1))] = t.value;
@@ -518,6 +555,9 @@ function submitStart() {
   readStart();
   var p = state.profile, c = course();
   if (!c) { state.problem = "Choose which presentations you are scoring."; return render(); }
+  if (!c.roles.length) {
+    if (whoPick(c, p) === "") { p.ownId = ""; state.problem = "Choose your name."; return render(); }
+  } else p.nameOther = false;
   if (!p.name) { state.problem = "Enter your name."; return render(); }
   if (c.roles.length && !p.role) { state.problem = "Choose whether you are a student or a client or guest."; return render(); }
   if (c.roles.length && p.role === c.roles[0] && !p.ownId) { state.problem = "Choose your team."; return render(); }
